@@ -2,11 +2,10 @@
 LLM Client with automatic fallback: Gemini → OpenAI
 - Tries Gemini first (cheaper, faster)
 - Falls back to OpenAI gpt-4o-mini on 429/quota errors
-- Logs which provider was used
 """
 
 import os
-import time
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,7 +13,6 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Lazy-init clients so missing keys don't crash on import
 _gemini_client = None
 _openai_client = None
 
@@ -31,12 +29,19 @@ def _get_openai():
     global _openai_client
     if _openai_client is None and OPENAI_API_KEY:
         from openai import OpenAI
-        _openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        # Pass explicit httpx client to avoid proxies kwarg conflict
+        # between openai SDK and httpx>=0.28
+        _openai_client = OpenAI(
+            api_key=OPENAI_API_KEY,
+            http_client=httpx.Client(
+                timeout=60.0,
+                follow_redirects=True,
+            )
+        )
     return _openai_client
 
 
 def _is_quota_error(e: Exception) -> bool:
-    """Check if error is a rate limit / quota exhaustion."""
     msg = str(e).lower()
     return any(kw in msg for kw in [
         "429", "quota", "rate_limit", "resource_exhausted",
@@ -51,9 +56,7 @@ def generate(
 ) -> tuple[str, str]:
     """
     Generate text with automatic Gemini → OpenAI fallback.
-
-    Returns:
-        (response_text, provider_used)  — provider is "gemini" or "openai"
+    Returns (response_text, provider_used)
     """
     # ── Try Gemini first ──────────────────────────────────────────
     gemini = _get_gemini()
@@ -70,16 +73,15 @@ def generate(
             )
             print("[llm] Used: Gemini 2.0 Flash")
             return response.text, "gemini"
-
         except Exception as e:
             if _is_quota_error(e):
-                print(f"[llm] Gemini quota hit, falling back to OpenAI... ({e})")
+                print(f"[llm] Gemini quota hit, falling back to OpenAI...")
             else:
-                print(f"[llm] Gemini error, falling back to OpenAI... ({e})")
+                print(f"[llm] Gemini error ({e}), falling back to OpenAI...")
     else:
-        print("[llm] No Gemini key, trying OpenAI...")
+        print("[llm] No Gemini key found, trying OpenAI...")
 
-    # ── Fallback: OpenAI ──────────────────────────────────────────
+    # ── Fallback: OpenAI ─────────────────────────────────────────
     openai_client = _get_openai()
     if openai_client:
         try:
@@ -91,10 +93,9 @@ def generate(
             )
             print("[llm] Used: OpenAI gpt-4o-mini")
             return response.choices[0].message.content, "openai"
-
         except Exception as e:
-            raise RuntimeError(f"OpenAI also failed: {e}")
+            raise RuntimeError(f"OpenAI failed: {e}")
 
     raise RuntimeError(
-        "No LLM available. Set GEMINI_API_KEY and/or OPENAI_API_KEY in backend/.env"
+        "No LLM available. Add GEMINI_API_KEY and/or OPENAI_API_KEY to backend/.env"
     )
