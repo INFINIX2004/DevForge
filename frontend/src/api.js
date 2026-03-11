@@ -27,14 +27,26 @@ async function post(path, payload) {
   return data;
 }
 
-export function analyzeDocs(payload) {
-  return post("/analyze", payload);
+export function analyzeDocs({ url, useCase, language }) {
+  return post("/analyze", {
+    url,
+    use_case: useCase,
+    language,
+  });
 }
 
-export function generateIntegration(payload) {
-  return post("/generate", payload);
+export function generateIntegration({ extracted, useCase, language }) {
+  return post("/generate", {
+    extracted,
+    use_case: useCase,
+    language,
+  });
 }
 
-export function analyzeAndGenerate(payload) {
-  return post("/analyze-and-generate", payload);
+export function analyzeAndGenerate({ url, useCase, language }) {
+  return post("/analyze-and-generate", {
+    url,
+    use_case: useCase,
+    language,
+  });
 }
