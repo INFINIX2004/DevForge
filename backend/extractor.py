@@ -1,15 +1,7 @@
-import os
 import json
 import re
-from google import genai
-from google.genai import types
-from dotenv import load_dotenv
+from llm_client import generate
 from models import ExtractedAPI, AuthInfo, Endpoint, EndpointParam
-
-load_dotenv()
-
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-MODEL = "gemini-2.0-flash"
 
 EXTRACT_PROMPT = """
 You are an expert API analyst. Below is the scraped content of an API documentation website.
@@ -85,23 +77,12 @@ def extract_json(text: str) -> dict:
 
 
 def extract_api_info(scraped_content: str, use_case: str) -> ExtractedAPI:
-    """Send scraped docs to Gemini and return structured ExtractedAPI."""
-    prompt = EXTRACT_PROMPT.format(
-        use_case=use_case,
-        content=scraped_content
-    )
+    """Send scraped docs to LLM and return structured ExtractedAPI."""
+    prompt = EXTRACT_PROMPT.format(use_case=use_case, content=scraped_content)
 
-    print("[extractor] Sending to Gemini for extraction...")
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.1,   # low temp for structured extraction
-            max_output_tokens=4096,
-        )
-    )
-    raw_text = response.text
-    print(f"[extractor] Got response ({len(raw_text)} chars)")
+    print("[extractor] Sending to LLM for extraction...")
+    raw_text, provider = generate(prompt, temperature=0.1, max_tokens=4096)
+    print(f"[extractor] Got response from {provider} ({len(raw_text)} chars)")
 
     data = extract_json(raw_text)
 
