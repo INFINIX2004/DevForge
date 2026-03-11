@@ -9,12 +9,23 @@ services:
     env_file:
       - ./backend/.env
     restart: unless-stopped
+    networks:
+      - devforge-net
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
     container_name: devforge-frontend
     ports:
       - "3000:80"
     depends_on:
       - backend
     restart: unless-stopped
+    networks:
+      - devforge-net
+
+networks:
+  devforge-net:
+    driver: bridge

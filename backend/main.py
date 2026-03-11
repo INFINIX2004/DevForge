@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from models import (
     AnalyzeRequest, AnalyzeResponse,
     GenerateRequest, GenerateResponse,
@@ -7,21 +8,31 @@ from models import (
 from scraper import scrape_docs
 from extractor import extract_api_info
 from generator import generate_wrapper
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 app = FastAPI(
     title="DevForge API",
-    description="Smart API Integration Tool — extracts, analyzes, and generates code from API docs",
+    description="Smart API Integration Tool — extract, analyze, and generate code from API docs",
     version="1.0.0"
 )
 
-# Allow React frontend (localhost:5173 for Vite dev server)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],  # tightened per-env if needed
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Thread pool for blocking Gemini/scrape calls
+executor = ThreadPoolExecutor(max_workers=4)
+
+
+def run_in_thread(fn, *args):
+    """Run a blocking function in a thread pool so FastAPI stays async."""
+    loop = asyncio.get_event_loop()
+    return loop.run_in_executor(executor, fn, *args)
 
 
 @app.get("/")
@@ -35,13 +46,10 @@ def health():
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
-def analyze(req: AnalyzeRequest):
-    """
-    Step 1: Scrape the docs URL and extract structured API info using Gemini.
-    """
+async def analyze(req: AnalyzeRequest):
+    """Step 1: Scrape docs URL and extract structured API info using Gemini."""
     try:
-        # Scrape docs
-        scraped = scrape_docs(req.url, recursive=True)
+        scraped = await run_in_thread(scrape_docs, req.url, True)
 
         if not scraped["content"]:
             raise HTTPException(
@@ -49,9 +57,7 @@ def analyze(req: AnalyzeRequest):
                 detail=f"Could not scrape content from {req.url}. Check the URL and try again."
             )
 
-        # Extract structured info via Gemini
-        extracted = extract_api_info(scraped["content"], req.use_case)
-
+        extracted = await run_in_thread(extract_api_info, scraped["content"], req.use_case)
         return AnalyzeResponse(success=True, extracted=extracted)
 
     except HTTPException:
@@ -62,39 +68,26 @@ def analyze(req: AnalyzeRequest):
 
 
 @app.post("/generate", response_model=GenerateResponse)
-def generate(req: GenerateRequest):
-    """
-    Step 2: Generate a wrapper class in the target language from extracted API info.
-    """
+async def generate(req: GenerateRequest):
+    """Step 2: Generate wrapper class from extracted API info."""
     try:
-        code = generate_wrapper(req.extracted, req.use_case, req.language)
+        code = await run_in_thread(generate_wrapper, req.extracted, req.use_case, req.language)
         return GenerateResponse(success=True, code=code)
-
     except Exception as e:
         print(f"[/generate] Error: {e}")
         return GenerateResponse(success=False, error=str(e))
 
 
 @app.post("/analyze-and-generate")
-def analyze_and_generate(req: AnalyzeRequest):
-    """
-    Combined endpoint: scrape → extract → generate in one call.
-    Useful for the frontend to do everything in a single request.
-    """
+async def analyze_and_generate(req: AnalyzeRequest):
+    """Combined pipeline: scrape → extract → generate in one call."""
     try:
-        # Step 1: Scrape
-        scraped = scrape_docs(req.url, recursive=True)
+        scraped = await run_in_thread(scrape_docs, req.url, True)
         if not scraped["content"]:
-            return {
-                "success": False,
-                "error": f"Could not scrape content from {req.url}"
-            }
+            return {"success": False, "error": f"Could not scrape content from {req.url}"}
 
-        # Step 2: Extract
-        extracted = extract_api_info(scraped["content"], req.use_case)
-
-        # Step 3: Generate
-        code = generate_wrapper(extracted, req.use_case, req.language)
+        extracted = await run_in_thread(extract_api_info, scraped["content"], req.use_case)
+        code = await run_in_thread(generate_wrapper, extracted, req.use_case, req.language)
 
         return {
             "success": True,
@@ -106,3 +99,11 @@ def analyze_and_generate(req: AnalyzeRequest):
     except Exception as e:
         print(f"[/analyze-and-generate] Error: {e}")
         return {"success": False, "error": str(e)}
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "error": f"Internal server error: {str(exc)}"}
+    )

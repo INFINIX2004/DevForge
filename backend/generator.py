@@ -1,14 +1,14 @@
 import os
 import re
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 from models import ExtractedAPI, GeneratedCode
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-pro")
-
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+MODEL = "gemini-2.0-flash"
 
 PYTHON_PROMPT = """
 You are a senior Python engineer. Generate a clean, production-ready Python wrapper class for this API.
@@ -36,10 +36,10 @@ Requirements:
 8. Include type hints
 
 After the class, write a short usage example showing how to use it for: {use_case}
+Start the usage example section with exactly: # Example usage
 
 Respond with ONLY the Python code. No markdown fences, no explanation.
 """
-
 
 JS_PROMPT = """
 You are a senior JavaScript engineer. Generate a clean, modern JavaScript wrapper class for this API.
@@ -66,13 +66,13 @@ Requirements:
 7. Return parsed JSON responses
 
 After the class, write a short usage example showing how to use it for: {use_case}
+Start the usage example section with exactly: // Example usage
 
 Respond with ONLY the JavaScript code. No markdown fences, no explanation.
 """
 
 
 def format_endpoints_list(extracted: ExtractedAPI) -> str:
-    """Format endpoints into a readable list for the prompt."""
     lines = []
     for ep in extracted.endpoints:
         lines.append(f"  {ep.method} {ep.path} — {ep.description}")
@@ -83,16 +83,11 @@ def format_endpoints_list(extracted: ExtractedAPI) -> str:
 
 
 def make_class_name(api_name: str) -> str:
-    """Convert API name to PascalCase class name."""
     words = re.sub(r"[^a-zA-Z0-9 ]", " ", api_name).split()
     return "".join(w.capitalize() for w in words if w)
 
 
 def generate_wrapper(extracted: ExtractedAPI, use_case: str, language: str) -> GeneratedCode:
-    """
-    Generate a wrapper class for the given extracted API info.
-    Supports 'python' and 'javascript'.
-    """
     class_name = make_class_name(extracted.api_name)
     endpoints_list = format_endpoints_list(extracted)
 
@@ -107,44 +102,41 @@ def generate_wrapper(extracted: ExtractedAPI, use_case: str, language: str) -> G
         class_name=class_name,
     )
 
-    if language == "javascript":
-        prompt = JS_PROMPT.format(**template_vars)
-    else:
-        prompt = PYTHON_PROMPT.format(**template_vars)
+    prompt = (JS_PROMPT if language == "javascript" else PYTHON_PROMPT).format(**template_vars)
 
     print(f"[generator] Generating {language} wrapper for {extracted.api_name}...")
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=0.3,
+            max_output_tokens=8192,
+        )
+    )
     full_code = response.text.strip()
 
-    # Strip accidental code fences if model adds them
+    # Strip accidental code fences
     full_code = re.sub(r"^```[a-z]*\n?", "", full_code)
     full_code = re.sub(r"\n?```$", "", full_code)
 
-    # Split wrapper class from usage example
-    # Look for common usage example separators
-    split_markers = [
-        "# Example usage",
-        "# Usage example",
-        "# Usage:",
-        "# Example:",
-        "// Example usage",
-        "// Usage example",
-        "// Usage:",
-        "if __name__",
-    ]
+    # Split on example usage marker
+    marker = "// Example usage" if language == "javascript" else "# Example usage"
+    idx = full_code.find(marker)
 
-    wrapper_class = full_code
-    usage_example = ""
-
-    for marker in split_markers:
-        idx = full_code.find(marker)
-        if idx != -1:
-            wrapper_class = full_code[:idx].strip()
-            usage_example = full_code[idx:].strip()
-            break
-
-    if not usage_example:
-        usage_example = f"# See the class above for usage\nclient = {class_name}Client(api_key='YOUR_KEY')"
+    if idx != -1:
+        wrapper_class = full_code[:idx].strip()
+        usage_example = full_code[idx:].strip()
+    else:
+        # fallback: try other common markers
+        for fallback in ["if __name__", "# Usage", "// Usage"]:
+            idx = full_code.find(fallback)
+            if idx != -1:
+                wrapper_class = full_code[:idx].strip()
+                usage_example = full_code[idx:].strip()
+                break
+        else:
+            wrapper_class = full_code
+            usage_example = f"# See the class above\nclient = {class_name}Client(api_key='YOUR_KEY')"
 
     print(f"[generator] Done. Wrapper: {len(wrapper_class)} chars")
 

@@ -1,15 +1,15 @@
 import os
 import json
 import re
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 from models import ExtractedAPI, AuthInfo, Endpoint, EndpointParam
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-pro")
-
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+MODEL = "gemini-2.0-flash"
 
 EXTRACT_PROMPT = """
 You are an expert API analyst. Below is the scraped content of an API documentation website.
@@ -61,13 +61,11 @@ Use case context (what the user wants to build): {use_case}
 
 def extract_json(text: str) -> dict:
     """Robustly extract JSON from model response."""
-    # Try direct parse first
     try:
         return json.loads(text.strip())
     except json.JSONDecodeError:
         pass
 
-    # Try extracting from code fences
     match = re.search(r"```(?:json)?\s*([\s\S]+?)```", text)
     if match:
         try:
@@ -75,7 +73,6 @@ def extract_json(text: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    # Try finding first { to last }
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1:
@@ -88,22 +85,26 @@ def extract_json(text: str) -> dict:
 
 
 def extract_api_info(scraped_content: str, use_case: str) -> ExtractedAPI:
-    """
-    Send scraped docs to Gemini and return structured ExtractedAPI.
-    """
+    """Send scraped docs to Gemini and return structured ExtractedAPI."""
     prompt = EXTRACT_PROMPT.format(
         use_case=use_case,
         content=scraped_content
     )
 
     print("[extractor] Sending to Gemini for extraction...")
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=0.1,   # low temp for structured extraction
+            max_output_tokens=4096,
+        )
+    )
     raw_text = response.text
     print(f"[extractor] Got response ({len(raw_text)} chars)")
 
     data = extract_json(raw_text)
 
-    # Parse into typed models
     auth = AuthInfo(
         type=data["auth"]["type"],
         header=data["auth"].get("header"),
