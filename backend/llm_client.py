@@ -1,7 +1,6 @@
 """
-LLM Client with automatic fallback: Gemini → OpenAI
-- Tries Gemini first (cheaper, faster)
-- Falls back to OpenAI gpt-4o-mini on 429/quota errors
+LLM Client — priority chain: Gemini → OpenAI → Groq (free)
+Get a free Groq key at console.groq.com (takes 30 seconds)
 """
 
 import os
@@ -12,9 +11,15 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GROQ_API_KEY   = os.getenv("GROQ_API_KEY")
 
 _gemini_client = None
 _openai_client = None
+_groq_client   = None
+
+GEMINI_MODEL = "gemini-1.5-flash-latest"
+OPENAI_MODEL = "gpt-4o-mini"
+GROQ_MODEL   = "llama-3.3-70b-versatile"   # free, fast, great at JSON + code
 
 
 def _get_gemini():
@@ -29,73 +34,94 @@ def _get_openai():
     global _openai_client
     if _openai_client is None and OPENAI_API_KEY:
         from openai import OpenAI
-        # Pass explicit httpx client to avoid proxies kwarg conflict
-        # between openai SDK and httpx>=0.28
         _openai_client = OpenAI(
             api_key=OPENAI_API_KEY,
-            http_client=httpx.Client(
-                timeout=60.0,
-                follow_redirects=True,
-            )
+            http_client=httpx.Client(timeout=60.0, follow_redirects=True)
         )
     return _openai_client
+
+
+def _get_groq():
+    global _groq_client
+    if _groq_client is None and GROQ_API_KEY:
+        from groq import Groq
+        _groq_client = Groq(
+            api_key=GROQ_API_KEY,
+            http_client=httpx.Client(timeout=60.0, follow_redirects=True)
+        )
+    return _groq_client
 
 
 def _is_quota_error(e: Exception) -> bool:
     msg = str(e).lower()
     return any(kw in msg for kw in [
         "429", "quota", "rate_limit", "resource_exhausted",
-        "rate limit", "too many requests"
+        "rate limit", "too many requests", "insufficient_quota",
+        "not_found", "404"
     ])
 
 
 def generate(
     prompt: str,
     temperature: float = 0.2,
-    max_tokens: int = 8192,
+    max_tokens: int = 4096,
 ) -> tuple[str, str]:
     """
-    Generate text with automatic Gemini → OpenAI fallback.
+    Generate text — tries Gemini, then OpenAI, then Groq.
     Returns (response_text, provider_used)
     """
-    # ── Try Gemini first ──────────────────────────────────────────
+
+    # ── 1. Gemini ─────────────────────────────────────────────────
     gemini = _get_gemini()
     if gemini:
         try:
             from google.genai import types
             response = gemini.models.generate_content(
-                model="gemini-2.0-flash",
+                model=GEMINI_MODEL,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=temperature,
                     max_output_tokens=max_tokens,
                 )
             )
-            print("[llm] Used: Gemini 2.0 Flash")
+            print(f"[llm] Used: {GEMINI_MODEL}")
             return response.text, "gemini"
         except Exception as e:
-            if _is_quota_error(e):
-                print(f"[llm] Gemini quota hit, falling back to OpenAI...")
-            else:
-                print(f"[llm] Gemini error ({e}), falling back to OpenAI...")
-    else:
-        print("[llm] No Gemini key found, trying OpenAI...")
+            print(f"[llm] Gemini failed ({type(e).__name__}), trying OpenAI...")
 
-    # ── Fallback: OpenAI ─────────────────────────────────────────
+    # ── 2. OpenAI ─────────────────────────────────────────────────
     openai_client = _get_openai()
     if openai_client:
         try:
             response = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-            print("[llm] Used: OpenAI gpt-4o-mini")
+            print(f"[llm] Used: {OPENAI_MODEL}")
             return response.choices[0].message.content, "openai"
         except Exception as e:
-            raise RuntimeError(f"OpenAI failed: {e}")
+            print(f"[llm] OpenAI failed ({type(e).__name__}), trying Groq...")
+
+    # ── 3. Groq (free fallback) ───────────────────────────────────
+    groq_client = _get_groq()
+    if groq_client:
+        try:
+            response = groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            print(f"[llm] Used: Groq {GROQ_MODEL}")
+            return response.choices[0].message.content, "groq"
+        except Exception as e:
+            raise RuntimeError(f"Groq failed: {e}")
 
     raise RuntimeError(
-        "No LLM available. Add GEMINI_API_KEY and/or OPENAI_API_KEY to backend/.env"
+        "No LLM available. Add at least one key to backend/.env:\n"
+        "  GEMINI_API_KEY  → aistudio.google.com\n"
+        "  OPENAI_API_KEY  → platform.openai.com\n"
+        "  GROQ_API_KEY    → console.groq.com  (FREE)"
     )

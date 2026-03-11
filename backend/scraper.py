@@ -15,8 +15,8 @@ CONTENT_TAGS = ["p", "h1", "h2", "h3", "h4", "li", "code", "pre", "td", "th"]
 REMOVE_TAGS  = ["script", "style", "nav", "footer", "header", "aside"]
 
 # ── Limits ────────────────────────────────────────────────────────
-MAX_CHARS      = 12000   # was 40k — this is plenty for Gemini to find endpoints
-MAX_SUBPAGES   = 2       # was 6 — main page + 2 sub pages max
+MAX_CHARS      = 4000    # keep well within free tier token limits
+MAX_SUBPAGES   = 1       # main page + 1 sub page only
 MIN_TEXT_LEN   = 15      # skip trivial fragments
 
 
@@ -105,7 +105,7 @@ def scrape_docs(url: str, recursive: bool = True) -> dict:
         return {"main_url": url, "content": "", "pages_scraped": 0}
 
     # Give main page most of the budget
-    main_text    = clean_html(main_html, char_limit=6000)
+    main_text    = clean_html(main_html, char_limit=3000)
     all_content  = [f"=== MAIN PAGE ===\n{main_text}"]
     pages_scraped = 1
 
