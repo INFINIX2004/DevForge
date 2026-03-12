@@ -4,7 +4,7 @@ import StepProgress from "./components/StepProgress";
 import EndpointViewer from "./components/EndpointViewer";
 import CodeOutput from "./components/CodeOutput";
 import SDKBanner from "./components/SDKBanner";
-import { analyzeAndGenerate } from "./api";
+import { analyzeAndGenerate, generateCode } from "./api";
 
 const STEPS = ["Input", "Scraping", "Extracting", "Generating", "Done"];
 
@@ -14,11 +14,15 @@ export default function App() {
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [language, setLanguage] = useState("python");
+  const [originalUrl, setOriginalUrl] = useState("");
+  const [originalUseCase, setOriginalUseCase] = useState("");
 
   async function handleSubmit({ url, useCase }) {
     setLoading(true);
     setError(null);
     setResult(null);
+    setOriginalUrl(url);
+    setOriginalUseCase(useCase);
     setStep(1);
 
     try {
@@ -37,20 +41,23 @@ export default function App() {
   }
 
   function handleReset() {
-    setStep(0); setResult(null); setError(null); setLoading(false);
+    setStep(0); setResult(null); setError(null);
+    setLoading(false); setOriginalUrl(""); setOriginalUseCase("");
   }
 
+  // Language switch — only regenerate code, keep existing extraction
   async function handleRegenerate(newLanguage) {
     if (!result) return;
     setLanguage(newLanguage);
     setLoading(true);
     try {
-      const data = await analyzeAndGenerate({
-        url: result.extracted.base_url,
-        useCase: result.extracted.raw_summary,
+      const data = await generateCode({
+        extracted: result.extracted,
+        useCase: originalUseCase,
         language: newLanguage,
       });
       if (data.success) setResult({ ...result, code: data.code });
+      else throw new Error(data.error);
     } catch (e) {
       setError(e.message);
     } finally {

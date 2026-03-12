@@ -50,3 +50,11 @@ export function analyzeAndGenerate({ url, useCase, language }) {
     language,
   });
 }
+
+export function generateCode({ extracted, useCase, language }) {
+  return post("/generate", {
+    extracted,
+    use_case: useCase,
+    language,
+  });
+}
