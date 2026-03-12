@@ -1,9 +1,16 @@
 import { useState } from "react";
 
 const EXAMPLES = [
-  { url: "https://stripe.com/docs/api", useCase: "Process payments and manage subscriptions" },
+  { url: "https://petstore3.swagger.io/api/v3/openapi.json", useCase: "Manage a pet store inventory" },
   { url: "https://docs.github.com/en/rest", useCase: "Manage repositories and automate CI/CD" },
   { url: "https://openweathermap.org/api", useCase: "Show real-time weather on a dashboard" },
+];
+
+const LANGUAGES = [
+  { id: "python",     label: "Python",     icon: "🐍" },
+  { id: "javascript", label: "JavaScript", icon: "🟨" },
+  { id: "typescript", label: "TypeScript", icon: "🔷" },
+  { id: "curl",       label: "curl",       icon: "⚡" },
 ];
 
 export default function InputPanel({ onSubmit, loading, language, onLanguageChange, error }) {
@@ -16,22 +23,17 @@ export default function InputPanel({ onSubmit, loading, language, onLanguageChan
     onSubmit({ url: url.trim(), useCase: useCase.trim() });
   }
 
-  function loadExample(ex) {
-    setUrl(ex.url);
-    setUseCase(ex.useCase);
-  }
-
   return (
     <div className="input-panel">
       <div className="input-card">
         <h2 className="card-title">Analyze an API</h2>
         <p className="card-subtitle">
-          Paste any API documentation URL and describe what you want to build.
+          Paste any API docs URL or a <code>swagger.json</code> / <code>openapi.yaml</code> link.
         </p>
 
         {error && (
           <div className="error-banner">
-            <span className="error-icon">⚠️</span>
+            <span>⚠️</span>
             <span>{error}</span>
           </div>
         )}
@@ -42,7 +44,7 @@ export default function InputPanel({ onSubmit, loading, language, onLanguageChan
             <input
               type="url"
               className="field-input"
-              placeholder="https://stripe.com/docs/api"
+              placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               required
@@ -64,24 +66,20 @@ export default function InputPanel({ onSubmit, loading, language, onLanguageChan
           <div className="field">
             <label className="field-label">Output Language</label>
             <div className="lang-toggle">
-              {["python", "javascript"].map((lang) => (
+              {LANGUAGES.map((lang) => (
                 <button
-                  key={lang}
+                  key={lang.id}
                   type="button"
-                  className={`lang-btn ${language === lang ? "lang-btn--active" : ""}`}
-                  onClick={() => onLanguageChange(lang)}
+                  className={`lang-btn ${language === lang.id ? "lang-btn--active" : ""}`}
+                  onClick={() => onLanguageChange(lang.id)}
                 >
-                  {lang === "python" ? "🐍 Python" : "🟨 JavaScript"}
+                  {lang.icon} {lang.label}
                 </button>
               ))}
             </div>
           </div>
 
-          <button
-            type="submit"
-            className="submit-btn"
-            disabled={loading || !url || !useCase}
-          >
+          <button type="submit" className="submit-btn" disabled={loading || !url || !useCase}>
             {loading ? "Analyzing..." : "⚡ Generate Wrapper"}
           </button>
         </form>
@@ -90,12 +88,8 @@ export default function InputPanel({ onSubmit, loading, language, onLanguageChan
           <p className="examples-label">Try an example:</p>
           <div className="examples-list">
             {EXAMPLES.map((ex, i) => (
-              <button
-                key={i}
-                className="example-chip"
-                onClick={() => loadExample(ex)}
-                type="button"
-              >
+              <button key={i} className="example-chip" type="button"
+                onClick={() => { setUrl(ex.url); setUseCase(ex.useCase); }}>
                 {ex.url.replace("https://", "").split("/")[0]}
               </button>
             ))}

@@ -480,3 +480,67 @@ a { color: var(--accent); }
 }
 
 .code-block code { font-family: inherit; }
+
+/* ── Source badges ── */
+.results-title-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.source-badge {
+  font-size: 0.72rem; font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 20px;
+  border: 1px solid;
+}
+.source-badge--openapi { background: rgba(34,197,94,0.1); border-color: var(--green); color: var(--green); }
+.source-badge--llm { background: var(--accent-glow); border-color: var(--accent); color: var(--accent-bright); }
+
+/* ── SDK Banner ── */
+.sdk-banner {
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.3);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.sdk-banner-icon { font-size: 1.2rem; flex-shrink: 0; }
+.sdk-banner-content { flex: 1; }
+.sdk-banner-title { font-weight: 600; color: #fbbf24; font-size: 0.9rem; margin-bottom: 0.2rem; }
+.sdk-banner-note { color: var(--text-2); font-size: 0.82rem; margin-bottom: 0.6rem; }
+.sdk-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.sdk-item { display: flex; align-items: center; gap: 0.6rem; }
+.sdk-lang { font-size: 0.75rem; font-weight: 600; color: var(--text-2); min-width: 80px; }
+.sdk-install { font-family: var(--mono); font-size: 0.78rem; background: var(--bg-3); padding: 0.2rem 0.5rem; border-radius: 4px; color: var(--green); }
+.sdk-docs { font-size: 0.75rem; color: var(--accent-bright); text-decoration: none; }
+.sdk-docs:hover { text-decoration: underline; }
+.sdk-banner-sub { width: 100%; font-size: 0.75rem; color: var(--text-3); margin-top: 0.5rem; }
+
+/* ── Language switcher in CodeOutput ── */
+.lang-switcher {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-3);
+  overflow-x: auto;
+}
+.lang-switch-btn {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: var(--text-3);
+  background: var(--bg-4);
+  transition: var(--transition);
+  white-space: nowrap;
+}
+.lang-switch-btn:hover { color: var(--text); border-color: var(--border-bright); }
+.lang-switch-btn--active {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent-bright);
+}
+
+/* ── Lang toggle 4-button wrap ── */
+.lang-toggle { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.lang-btn { flex: 1; min-width: 100px; }

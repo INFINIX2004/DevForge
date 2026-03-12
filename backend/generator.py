@@ -2,75 +2,81 @@ import re
 from llm_client import generate
 from models import ExtractedAPI, GeneratedCode
 
-PYTHON_PROMPT = """
-You are a senior Python engineer. Generate a clean, production-ready Python wrapper class for this API.
+SUPPORTED_LANGUAGES = ["python", "javascript", "typescript", "curl"]
 
-API Details:
-- Name: {api_name}
-- Base URL: {base_url}
-- Auth Type: {auth_type}
-- Auth Header: {auth_header}
-- Auth Description: {auth_description}
+PYTHON_PROMPT = """You are a senior Python engineer. Generate a clean Python wrapper class.
 
-Endpoints to implement:
-{endpoints_list}
+API: {api_name} | Base: {base_url} | Auth: {auth_type} via {auth_header}
+Use case: {use_case}
 
-Use case the user wants to build: {use_case}
+Endpoints:
+{endpoints}
 
-Requirements:
-1. Use the `requests` library
-2. Class name should be {class_name}Client
-3. Constructor takes api_key as parameter
-4. Each endpoint becomes a method
-5. Include proper docstrings
-6. Handle errors with try/except, raise descriptive exceptions
-7. Return parsed JSON responses
-8. Include type hints
+Requirements: requests library, class {class_name}Client, constructor takes api_key,
+type hints, docstrings, try/except error handling, return parsed JSON.
+After the class write: # Example usage
+ONLY Python code, no markdown fences."""
 
-After the class, write a short usage example showing how to use it for: {use_case}
-Start the usage example section with exactly: # Example usage
+JS_PROMPT = """You are a senior JavaScript engineer. Generate a clean JS wrapper class.
 
-Respond with ONLY the Python code. No markdown fences, no explanation.
-"""
+API: {api_name} | Base: {base_url} | Auth: {auth_type} via {auth_header}
+Use case: {use_case}
 
-JS_PROMPT = """
-You are a senior JavaScript engineer. Generate a clean, modern JavaScript wrapper class for this API.
+Endpoints:
+{endpoints}
 
-API Details:
-- Name: {api_name}
-- Base URL: {base_url}
-- Auth Type: {auth_type}
-- Auth Header: {auth_header}
-- Auth Description: {auth_description}
+Requirements: fetch API only, class {class_name}Client, constructor takes apiKey,
+async methods, JSDoc comments, try/catch error handling, return parsed JSON.
+After the class write: // Example usage
+ONLY JavaScript code, no markdown fences."""
 
-Endpoints to implement:
-{endpoints_list}
+TS_PROMPT = """You are a senior TypeScript engineer. Generate a clean TypeScript wrapper class.
 
-Use case the user wants to build: {use_case}
+API: {api_name} | Base: {base_url} | Auth: {auth_type} via {auth_header}
+Use case: {use_case}
 
-Requirements:
-1. Use fetch API (no external dependencies)
-2. Class name should be {class_name}Client
-3. Constructor takes apiKey as parameter
-4. Each endpoint becomes an async method
-5. Include JSDoc comments
-6. Handle errors with try/catch, throw descriptive errors
-7. Return parsed JSON responses
+Endpoints:
+{endpoints}
 
-After the class, write a short usage example showing how to use it for: {use_case}
-Start the usage example section with exactly: // Example usage
+Requirements: fetch API only, typed interfaces for request/response, class {class_name}Client,
+constructor takes apiKey: string, async methods, JSDoc, try/catch, generics where appropriate.
+After the class write: // Example usage
+ONLY TypeScript code, no markdown fences."""
 
-Respond with ONLY the JavaScript code. No markdown fences, no explanation.
-"""
+CURL_PROMPT = """You are a developer advocate. Generate practical curl examples for this API.
+
+API: {api_name} | Base: {base_url} | Auth: {auth_type} via {auth_header}
+Use case: {use_case}
+
+Endpoints:
+{endpoints}
+
+Write one curl command per endpoint with a comment above explaining what it does.
+Use realistic placeholder values and proper auth headers.
+ONLY shell commands and # comments, no markdown fences."""
+
+PROMPT_MAP = {
+    "python": PYTHON_PROMPT,
+    "javascript": JS_PROMPT,
+    "typescript": TS_PROMPT,
+    "curl": CURL_PROMPT,
+}
+
+EXAMPLE_MARKERS = {
+    "python":     ["# Example usage", "if __name__", "# Usage"],
+    "javascript": ["// Example usage", "// Usage"],
+    "typescript": ["// Example usage", "// Usage"],
+    "curl":       [],
+}
 
 
-def format_endpoints_list(extracted: ExtractedAPI) -> str:
+def format_endpoints(extracted: ExtractedAPI) -> str:
     lines = []
     for ep in extracted.endpoints:
         lines.append(f"  {ep.method} {ep.path} — {ep.description}")
-        for p in ep.params:
+        for p in ep.params[:3]:
             req = "required" if p.required else "optional"
-            lines.append(f"    • {p.name} ({p.type}, {req}): {p.description}")
+            lines.append(f"    • {p.name} ({p.type}, {req})")
     return "\n".join(lines)
 
 
@@ -80,53 +86,44 @@ def make_class_name(api_name: str) -> str:
 
 
 def generate_wrapper(extracted: ExtractedAPI, use_case: str, language: str) -> GeneratedCode:
-    class_name = make_class_name(extracted.api_name)
-    endpoints_list = format_endpoints_list(extracted)
+    if language not in SUPPORTED_LANGUAGES:
+        language = "python"
 
-    template_vars = dict(
+    class_name = make_class_name(extracted.api_name)
+    prompt = PROMPT_MAP[language].format(
         api_name=extracted.api_name,
         base_url=extracted.base_url,
         auth_type=extracted.auth.type,
         auth_header=extracted.auth.header or "Authorization",
-        auth_description=extracted.auth.description,
-        endpoints_list=endpoints_list,
         use_case=use_case,
+        endpoints=format_endpoints(extracted),
         class_name=class_name,
     )
 
-    prompt = (JS_PROMPT if language == "javascript" else PYTHON_PROMPT).format(**template_vars)
+    print(f"[generator] Generating {language} for {extracted.api_name}...")
+    full_code, provider = generate(prompt, temperature=0.3, max_tokens=4096)
+    print(f"[generator] Done via {provider} ({len(full_code)} chars)")
 
-    print(f"[generator] Generating {language} wrapper for {extracted.api_name}...")
-    full_code, provider = generate(prompt, temperature=0.3, max_tokens=8192)
-    print(f"[generator] Code generated by {provider}")
-
-    # Strip accidental code fences
     full_code = full_code.strip()
     full_code = re.sub(r"^```[a-z]*\n?", "", full_code)
     full_code = re.sub(r"\n?```$", "", full_code)
 
-    # Split wrapper from usage example
-    marker = "// Example usage" if language == "javascript" else "# Example usage"
-    idx = full_code.find(marker)
+    wrapper_class = full_code
+    usage_example = ""
 
-    if idx != -1:
-        wrapper_class = full_code[:idx].strip()
-        usage_example = full_code[idx:].strip()
-    else:
-        for fallback in ["if __name__", "# Usage", "// Usage"]:
-            idx = full_code.find(fallback)
-            if idx != -1:
-                wrapper_class = full_code[:idx].strip()
-                usage_example = full_code[idx:].strip()
-                break
+    for marker in EXAMPLE_MARKERS.get(language, []):
+        idx = full_code.find(marker)
+        if idx != -1:
+            wrapper_class = full_code[:idx].strip()
+            usage_example = full_code[idx:].strip()
+            break
+
+    if not usage_example:
+        if language == "python":
+            usage_example = f"# Example usage\nclient = {class_name}Client(api_key='YOUR_KEY')"
+        elif language in ("javascript", "typescript"):
+            usage_example = f"// Example usage\nconst client = new {class_name}Client('YOUR_KEY');"
         else:
-            wrapper_class = full_code
-            usage_example = f"# See the class above\nclient = {class_name}Client(api_key='YOUR_KEY')"
+            usage_example = "# Replace YOUR_API_KEY with your actual key"
 
-    print(f"[generator] Done. Wrapper: {len(wrapper_class)} chars")
-
-    return GeneratedCode(
-        language=language,
-        wrapper_class=wrapper_class,
-        usage_example=usage_example
-    )
+    return GeneratedCode(language=language, wrapper_class=wrapper_class, usage_example=usage_example)
